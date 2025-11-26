@@ -1,5 +1,5 @@
 // controllers/interviewController.js
-import InterviewSession from "../model/interviewSession.js";
+import InterviewSession from "../models/interviewSession.js";
 import { generateAIResponse } from "../services/aiService.js";
 
 // ------------------- 1) START INTERVIEW -------------------
