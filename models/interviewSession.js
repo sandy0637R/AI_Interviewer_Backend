@@ -26,6 +26,7 @@ const InterviewSessionSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     isAnonymous: { type: Boolean, default: true },
     questionsAsked: { type: Number, default: 0, min: 0, max: 100 },
+    totalQuestions: { type: Number, required: true, min: 1, max: 100 }, // 🔥 NEW FIELD
     answers: { type: [answerSchema], default: [] },
     feedback: { type: String, default: null, trim: true, maxlength: 15000 },
     isCompleted: { type: Boolean, default: false, index: true },

@@ -14,6 +14,8 @@ app.use(express.json());
 
 // Routes
 import interviewRoutes from "./routes/interviewRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+app.use("/auth", authRoutes);
 app.use("/interview", interviewRoutes);
 
 export default app;
