@@ -30,6 +30,7 @@ const InterviewSessionSchema = new mongoose.Schema(
     answers: { type: [answerSchema], default: [] },
     feedback: { type: String, default: null, trim: true, maxlength: 15000 },
     isCompleted: { type: Boolean, default: false, index: true },
+    ip: { type: String, index: true },
   },
   { timestamps: true }
 );

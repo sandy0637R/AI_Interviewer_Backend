@@ -1,6 +1,7 @@
 import InterviewSession from "../models/interviewSession.js";
 import { generateAIResponse } from "../services/aiService.js";
 import { checkAnswerRelevance } from "../services/relevanceService.js";
+import User from "../models/user.js";
 
 // ------------------- START INTERVIEW -------------------
 export const startInterview = async (req, res) => {
@@ -11,6 +12,22 @@ export const startInterview = async (req, res) => {
       return res.status(400).json({ success: false, message: "totalQuestions must be provided" });
     }
 
+    const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+    if (!userId) {
+      const previousAnonymousSession = await InterviewSession.findOne({
+        userId: null,
+        ip: userIP,
+      });
+
+      if (previousAnonymousSession) {
+        return res.status(403).json({
+          success: false,
+          message: "Free interview already used. Please login to start a new interview.",
+        });
+      }
+    }
+
     const session = await InterviewSession.create({
       role,
       userId: userId || null,
@@ -19,7 +36,15 @@ export const startInterview = async (req, res) => {
       questionsAsked: 0,
       answers: [],
       isCompleted: false,
+      ip: userIP,
     });
+
+    // ⭐ SAVE THIS SESSION INSIDE USER DOCUMENT
+    if (userId) {
+      await User.findByIdAndUpdate(userId, {
+        $push: { sessions: session._id },
+      });
+    }
 
     const prompt = `
 You are an AI interviewer.
@@ -40,6 +65,7 @@ ONLY ask the question. No intro or explanation.
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 // ------------------- NEXT QUESTION -------------------
 export const nextQuestion = async (req, res) => {

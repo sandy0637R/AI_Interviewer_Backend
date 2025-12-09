@@ -22,6 +22,14 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+
+    // ⭐ NEW FIELD → store all interview session IDs
+    sessions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "InterviewSession",
+      },
+    ],
   },
   { timestamps: true }
 );
