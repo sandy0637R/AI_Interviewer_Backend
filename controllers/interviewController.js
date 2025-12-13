@@ -9,7 +9,9 @@ export const startInterview = async (req, res) => {
     const { role, userId, isAnonymous, totalQuestions } = req.body;
 
     if (!totalQuestions || totalQuestions < 1) {
-      return res.status(400).json({ success: false, message: "totalQuestions must be provided" });
+      return res
+        .status(400)
+        .json({ success: false, message: "totalQuestions must be provided" });
     }
 
     const userIP = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
@@ -23,7 +25,8 @@ export const startInterview = async (req, res) => {
       if (previousAnonymousSession) {
         return res.status(403).json({
           success: false,
-          message: "Free interview already used. Please login to start a new interview.",
+          message:
+            "Free interview already used. Please login to start a new interview.",
         });
       }
     }
@@ -39,33 +42,38 @@ export const startInterview = async (req, res) => {
       ip: userIP,
     });
 
-    // ⭐ SAVE THIS SESSION INSIDE USER DOCUMENT
     if (userId) {
       await User.findByIdAndUpdate(userId, {
         $push: { sessions: session._id },
       });
     }
 
-    const prompt = `
+    let question = await generateAIResponse(`
 You are an AI interviewer.
 Ask Question Q1 for the role: ${role}.
 ONLY ask the question. No intro or explanation.
-    `;
+    `);
 
-    let question = await generateAIResponse(prompt);
     if (!question?.trim()) {
-      question = "Q1: Please answer this question: What is your understanding of this role?";
+      question = "Q1: What is your understanding of this role?";
     } else {
       question = `Q1: ${question.trim()}`;
     }
 
-    res.json({ success: true, sessionId: session._id, questionNumber: 1, question });
+    session.lastQuestion = question;
+    await session.save();
+
+    res.json({
+      success: true,
+      sessionId: session._id,
+      questionNumber: 1,
+      question,
+    });
   } catch (error) {
     console.error("Start Interview Error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 // ------------------- NEXT QUESTION -------------------
 export const nextQuestion = async (req, res) => {
@@ -73,36 +81,34 @@ export const nextQuestion = async (req, res) => {
     const { sessionId, answer } = req.body;
 
     const session = await InterviewSession.findById(sessionId);
-    if (!session) return res.status(404).json({ success: false, message: "Session not found" });
+    if (!session)
+      return res
+        .status(404)
+        .json({ success: false, message: "Session not found" });
 
     const currentQuestionNumber = session.questionsAsked + 1;
     const normalizedAnswer = answer?.toLowerCase() || "";
 
-    // ------------------ REPEAT LOGIC ------------------
     const repeatKeywords = [
-      "repeat", "say again", "tell again", "can you repeat", "please repeat",
-      "didn't understand", "didnt understand", "do not understand", "dont understand", "explain again"
+      "repeat",
+      "say again",
+      "tell again",
+      "can you repeat",
+      "please repeat",
+      "didn't understand",
+      "dont understand",
+      "explain again",
     ];
 
     if (repeatKeywords.some((k) => normalizedAnswer.includes(k))) {
-      const repeatedPrompt = `
-You are an AI interviewer.
-Repeat Question Q${currentQuestionNumber} for the role: ${session.role}.
-ONLY repeat the question. No extra text.
-      `;
-      let repeated = await generateAIResponse(repeatedPrompt);
-      if (!repeated?.trim()) repeated = `Q${currentQuestionNumber}: Let me repeat the question: What is your understanding of this role?`;
-      else repeated = `Q${currentQuestionNumber}: ${repeated.trim()}`;
-
       return res.json({
         success: true,
         repeat: true,
         questionNumber: currentQuestionNumber,
-        question: repeated,
+        question: session.lastQuestion,
       });
     }
 
-    // ------------------ RELEVANCE CHECK ------------------
     const relevance = await checkAnswerRelevance(
       `Question Q${currentQuestionNumber} for role ${session.role}`,
       answer
@@ -112,63 +118,67 @@ ONLY repeat the question. No extra text.
       return res.json({
         success: false,
         askAgain: true,
-        message: "Your answer doesn't match the question. Please answer again correctly.",
+        message:
+          "Your answer doesn't match the question. Please answer again correctly.",
       });
     }
 
-    // Save answer with serial
     session.questionsAsked += 1;
-    session.answers.push({ questionNumber: session.questionsAsked, answer });
+    session.answers.push({
+      questionNumber: session.questionsAsked,
+      question: session.lastQuestion,
+      answer,
+    });
 
-    // ------------------ FINAL FEEDBACK ------------------
+    // ---------------- FINAL FEEDBACK ----------------
     if (session.questionsAsked === session.totalQuestions) {
       const feedbackPrompt = `
-You are an AI interviewer evaluating a candidate for: ${session.role}
+You are an AI interviewer.
 
-Here are the user's answers:
+Return feedback STRICTLY in JSON:
+{
+  "rating": number out of 10,
+  "plusPoints": ["point1","point2"],
+  "improvements": ["point1","point2"],
+  "summary": "3-4 line summary"
+}
+
+Answers:
 ${session.answers.map((a) => `Q${a.questionNumber}: ${a.answer}`).join("\n")}
-
-Provide structured feedback in EXACTLY this format:
-
-Rating: X/10
-
-Plus Points:
-- point 1
-- point 2
-
-Areas to Improve:
-- point 1
-- point 2
-
-Summary:
-3–4 line summary of performance.
       `;
 
-      let feedback = await generateAIResponse(feedbackPrompt);
-      if (!feedback?.trim()) feedback = "Feedback unavailable. Please retry the interview.";
+      const feedback = await generateAIResponse(feedbackPrompt);
 
+      session.feedback = JSON.parse(feedback);
       session.isCompleted = true;
-      session.feedback = feedback;
       await session.save();
 
-      return res.json({ success: true, completed: true, feedback });
+      return res.json({
+        success: true,
+        completed: true,
+        feedback: session.feedback,
+      });
     }
 
-    // ------------------ NEXT QUESTION ------------------
+    // ---------------- NEXT QUESTION ----------------
     const nextQuestionNumber = session.questionsAsked + 1;
-    const nextPrompt = `
+
+    let nextQuestion = await generateAIResponse(`
 You are an AI interviewer.
 Ask Question Q${nextQuestionNumber} for the role: ${session.role}.
-ONLY ask the question. No extra sentences.
-    `;
+ONLY ask the question.
+    `);
 
-    let nextQuestion = await generateAIResponse(nextPrompt);
-    if (!nextQuestion?.trim()) nextQuestion = `Q${nextQuestionNumber}: Please describe your previous experience relevant to this role.`;
-    else nextQuestion = `Q${nextQuestionNumber}: ${nextQuestion.trim()}`;
+    if (!nextQuestion?.trim()) {
+      nextQuestion = `Q${nextQuestionNumber}: Describe your experience relevant to this role.`;
+    } else {
+      nextQuestion = `Q${nextQuestionNumber}: ${nextQuestion.trim()}`;
+    }
 
+    session.lastQuestion = nextQuestion;
     await session.save();
 
-    return res.json({
+    res.json({
       success: true,
       questionNumber: nextQuestionNumber,
       question: nextQuestion,
@@ -180,36 +190,36 @@ ONLY ask the question. No extra sentences.
 };
 
 // ------------------- RESUME INTERVIEW -------------------
+// ------------------- RESUME INTERVIEW (FIXED & PERFECT) -------------------
 export const resumeInterview = async (req, res) => {
   try {
     const { sessionId } = req.body;
 
-    const session = await InterviewSession.findById(sessionId);
-    if (!session) return res.status(404).json({ success: false, message: "Session not found" });
-
-    if (session.isCompleted)
-      return res.json({ success: true, completed: true, feedback: session.feedback });
-
-    const nextQuestionNumber = session.questionsAsked + 1;
-    const prompt = `
-You are an AI interviewer.
-Ask Question Q${nextQuestionNumber} for the role: ${session.role}.
-ONLY ask the question. No extra text.
-    `;
-
-    let question = await generateAIResponse(prompt);
-    if (!question?.trim()) question = `Q${nextQuestionNumber}: What skills make you suitable for this role?`;
-    else question = `Q${nextQuestionNumber}: ${question.trim()}`;
+    const session = await InterviewSession.findById(sessionId).lean();
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Session not found" });
+    }
 
     return res.json({
       success: true,
-      questionNumber: nextQuestionNumber,
-      question,
-      totalQuestions: session.totalQuestions,
-      answersSoFar: session.answers.map(a => ({ ...a, questionNumber: `Q${a.questionNumber}` })),
+      session: {
+        _id: session._id,
+        role: session.role,
+        questionsAsked: session.questionsAsked,
+        totalQuestions: session.totalQuestions,
+        answers: session.answers,          // ✅ FULL Q&A
+        lastQuestion: session.lastQuestion,
+        feedback: session.feedback || null,
+        isCompleted: session.isCompleted,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      },
     });
   } catch (error) {
     console.error("Resume Interview Error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+

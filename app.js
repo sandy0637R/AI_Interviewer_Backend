@@ -18,5 +18,5 @@ import authRoutes from "./routes/authRoutes.js";
 import sessionRoutes from "./routes/sessionRoutes.js"
 app.use("/auth", authRoutes);
 app.use("/interview", interviewRoutes);
-app.use("/session",sessionRoutes)
+app.use("/sessions",sessionRoutes)
 export default app;

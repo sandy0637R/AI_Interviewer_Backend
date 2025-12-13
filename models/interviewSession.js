@@ -9,6 +9,12 @@ const answerSchema = new mongoose.Schema(
       min: 1,
       max: 100,
     },
+    question: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 3000,
+    },
     answer: {
       type: String,
       required: true,
@@ -19,6 +25,17 @@ const answerSchema = new mongoose.Schema(
   { _id: false, timestamps: true }
 );
 
+// ---------------- FEEDBACK SUB-SCHEMA ----------------
+const feedbackSchema = new mongoose.Schema(
+  {
+    rating: { type: Number, min: 0, max: 10 },
+    plusPoints: { type: [String], default: [] },
+    improvements: { type: [String], default: [] },
+    summary: { type: String, maxlength: 2000 },
+  },
+  { _id: false }
+);
+
 // ---------------- MAIN SESSION SCHEMA ----------------
 const InterviewSessionSchema = new mongoose.Schema(
   {
@@ -26,9 +43,10 @@ const InterviewSessionSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     isAnonymous: { type: Boolean, default: true },
     questionsAsked: { type: Number, default: 0, min: 0, max: 100 },
-    totalQuestions: { type: Number, required: true, min: 1, max: 100 }, // 🔥 NEW FIELD
+    totalQuestions: { type: Number, required: true, min: 1, max: 100 },
     answers: { type: [answerSchema], default: [] },
-    feedback: { type: String, default: null, trim: true, maxlength: 15000 },
+    lastQuestion: { type: String, default: null },
+    feedback: { type: feedbackSchema, default: null },
     isCompleted: { type: Boolean, default: false, index: true },
     ip: { type: String, index: true },
   },

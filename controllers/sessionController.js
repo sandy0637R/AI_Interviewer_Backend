@@ -12,7 +12,8 @@ export const getUserSessions = async (req, res) => {
     }
 
     const sessions = await InterviewSession.find({ userId })
-      .sort({ createdAt: -1 }); // latest first
+      .sort({ createdAt: -1 }) // latest first
+      .lean(); // 🔹 ensures full plain JSON object
 
     res.json({
       success: true,
