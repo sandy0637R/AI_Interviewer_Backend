@@ -47,6 +47,15 @@ const InterviewSessionSchema = new mongoose.Schema(
     answers: { type: [answerSchema], default: [] },
     lastQuestion: { type: String, default: null },
     feedback: { type: feedbackSchema, default: null },
+
+    // ✅ BEST PRACTICE ADDITION
+    status: {
+      type: String,
+      enum: ["in_progress", "completed"],
+      default: "in_progress",
+      index: true,
+    },
+
     isCompleted: { type: Boolean, default: false, index: true },
     ip: { type: String, index: true },
   },

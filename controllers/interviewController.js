@@ -39,6 +39,7 @@ export const startInterview = async (req, res) => {
       questionsAsked: 0,
       answers: [],
       isCompleted: false,
+      status: "in_progress", // ✅
       ip: userIP,
     });
 
@@ -151,6 +152,7 @@ ${session.answers.map((a) => `Q${a.questionNumber}: ${a.answer}`).join("\n")}
 
       session.feedback = JSON.parse(feedback);
       session.isCompleted = true;
+      session.status = "completed"; // ✅ BEST PRACTICE
       await session.save();
 
       return res.json({
@@ -190,7 +192,6 @@ ONLY ask the question.
 };
 
 // ------------------- RESUME INTERVIEW -------------------
-// ------------------- RESUME INTERVIEW (FIXED & PERFECT) -------------------
 export const resumeInterview = async (req, res) => {
   try {
     const { sessionId } = req.body;
@@ -209,10 +210,11 @@ export const resumeInterview = async (req, res) => {
         role: session.role,
         questionsAsked: session.questionsAsked,
         totalQuestions: session.totalQuestions,
-        answers: session.answers,          // ✅ FULL Q&A
+        answers: session.answers,
         lastQuestion: session.lastQuestion,
         feedback: session.feedback || null,
         isCompleted: session.isCompleted,
+        status: session.status, // ✅ exposed safely
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       },
@@ -222,4 +224,3 @@ export const resumeInterview = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
