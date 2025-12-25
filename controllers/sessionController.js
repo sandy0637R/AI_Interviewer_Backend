@@ -27,3 +27,36 @@ export const getUserSessions = async (req, res) => {
     });
   }
 };
+
+export const deleteSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "sessionId is required",
+      });
+    }
+
+    const deletedSession = await InterviewSession.findByIdAndDelete(sessionId);
+
+    if (!deletedSession) {
+      return res.status(404).json({
+        success: false,
+        message: "Session not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Session deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Session Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
