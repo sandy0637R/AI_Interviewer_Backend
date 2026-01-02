@@ -38,14 +38,14 @@ Respond with ONE WORD ONLY. No explanations.
         { role: "system", content: "Classify relevance. Output one word only: relevant / irrelevant / dont_know" },
         { role: "user", content: prompt },
       ],
-      temperature: 0.3, // more lenient
+      temperature: 0.3, // lenient
       max_tokens: 5,
     });
 
     let raw = response.choices[0].message.content;
     console.log("🟢 Raw AI relevance response:", raw);
 
-    // Normalize
+    // Normalize response
     let relevance = raw.trim().toLowerCase().replace(/[^\w]/g, "");
 
     // Treat "dontknow" as relevant for leniency

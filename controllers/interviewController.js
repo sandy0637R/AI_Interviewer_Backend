@@ -39,7 +39,7 @@ export const startInterview = async (req, res) => {
       questionsAsked: 0,
       answers: [],
       isCompleted: false,
-      status: "in_progress", // ✅
+      status: "in_progress",
       ip: userIP,
     });
 
@@ -49,17 +49,19 @@ export const startInterview = async (req, res) => {
       });
     }
 
-    let question = await generateAIResponse(`
-You are an AI interviewer.
-Ask Question Q1 for the role: ${role}.
-ONLY ask the question. No intro or explanation.
+    // 🎤 INTERVIEW GREETING (Q1)
+    let greeting = await generateAIResponse(`
+You are a professional interviewer.
+Start with a warm greeting and ask the candidate to briefly introduce themselves.
+Keep it natural and friendly.
     `);
 
-    if (!question?.trim()) {
-      question = "Q1: What is your understanding of this role?";
-    } else {
-      question = `Q1: ${question.trim()}`;
+    if (!greeting?.trim()) {
+      greeting =
+        "Hi, welcome! I'm glad you're here today. Could you please introduce yourself briefly?";
     }
+
+    const question = `Q1: ${greeting.trim()}`;
 
     session.lastQuestion = question;
     await session.save();
@@ -75,6 +77,7 @@ ONLY ask the question. No intro or explanation.
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 // ------------------- NEXT QUESTION -------------------
 export const nextQuestion = async (req, res) => {
@@ -110,10 +113,23 @@ export const nextQuestion = async (req, res) => {
       });
     }
 
-    const relevance = await checkAnswerRelevance(
-      `Question Q${currentQuestionNumber} for role ${session.role}`,
-      answer
-    );
+    // ---------------- RELEVANCE CHECK ----------------
+    let relevance = "relevant";
+
+    // Q1 → Introduction, single warm-up question
+    if (session.questionsAsked === 0) {
+      // Reject complete nonsense or gibberish
+      const wordCount = answer?.trim().split(/\s+/).length || 0;
+      const hasLetters = /[a-zA-Z]/.test(answer);
+
+      if (wordCount < 2 || !hasLetters) relevance = "irrelevant";
+    } else {
+      // All other questions, use AI relevance
+      relevance = await checkAnswerRelevance(
+        `Question Q${currentQuestionNumber} for role ${session.role}`,
+        answer
+      );
+    }
 
     if (relevance === "irrelevant") {
       return res.json({
@@ -152,7 +168,7 @@ ${session.answers.map((a) => `Q${a.questionNumber}: ${a.answer}`).join("\n")}
 
       session.feedback = JSON.parse(feedback);
       session.isCompleted = true;
-      session.status = "completed"; // ✅ BEST PRACTICE
+      session.status = "completed";
       await session.save();
 
       return res.json({
@@ -162,20 +178,41 @@ ${session.answers.map((a) => `Q${a.questionNumber}: ${a.answer}`).join("\n")}
       });
     }
 
-    // ---------------- NEXT QUESTION ----------------
+    // ---------------- NEXT QUESTION LOGIC ----------------
     const nextQuestionNumber = session.questionsAsked + 1;
+    let nextQuestionPrompt = "";
 
-    let nextQuestion = await generateAIResponse(`
+    // Q2 → Background
+    if (nextQuestionNumber === 2) {
+      nextQuestionPrompt = `
+You are an interviewer.
+Ask about the candidate's background, experience level, or education.
+Keep it conversational.
+      `;
+    }
+    // Q3 → Experience / Skills
+    else if (nextQuestionNumber === 3) {
+      nextQuestionPrompt = `
+You are an interviewer.
+Ask about the candidate's experience, skills, or technologies they have worked with.
+      `;
+    }
+    // Q4+ → Technical interview
+    else {
+      nextQuestionPrompt = `
 You are an AI interviewer.
-Ask Question Q${nextQuestionNumber} for the role: ${session.role}.
+Ask a technical interview question for the role: ${session.role}.
 ONLY ask the question.
-    `);
+      `;
+    }
+
+    let nextQuestion = await generateAIResponse(nextQuestionPrompt);
 
     if (!nextQuestion?.trim()) {
-      nextQuestion = `Q${nextQuestionNumber}: Describe your experience relevant to this role.`;
-    } else {
-      nextQuestion = `Q${nextQuestionNumber}: ${nextQuestion.trim()}`;
+      nextQuestion = `Describe your experience related to this role.`;
     }
+
+    nextQuestion = `Q${nextQuestionNumber}: ${nextQuestion.trim()}`;
 
     session.lastQuestion = nextQuestion;
     await session.save();
@@ -190,6 +227,7 @@ ONLY ask the question.
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
 
 // ------------------- RESUME INTERVIEW -------------------
 export const resumeInterview = async (req, res) => {
@@ -214,7 +252,7 @@ export const resumeInterview = async (req, res) => {
         lastQuestion: session.lastQuestion,
         feedback: session.feedback || null,
         isCompleted: session.isCompleted,
-        status: session.status, // ✅ exposed safely
+        status: session.status,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       },

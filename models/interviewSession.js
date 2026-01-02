@@ -42,13 +42,22 @@ const InterviewSessionSchema = new mongoose.Schema(
     role: { type: String, required: true, trim: true, minlength: 2, maxlength: 200, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     isAnonymous: { type: Boolean, default: true },
+
+    // 🔹 INTERVIEW FLOW CONTROL (NEW)
+    stage: {
+      type: String,
+      enum: ["greeting", "introduction", "interview", "completed"],
+      default: "greeting",
+      index: true,
+    },
+
     questionsAsked: { type: Number, default: 0, min: 0, max: 100 },
     totalQuestions: { type: Number, required: true, min: 1, max: 100 },
     answers: { type: [answerSchema], default: [] },
     lastQuestion: { type: String, default: null },
     feedback: { type: feedbackSchema, default: null },
 
-    // ✅ BEST PRACTICE ADDITION
+    // ✅ EXISTING STATUS (UNCHANGED)
     status: {
       type: String,
       enum: ["in_progress", "completed"],
