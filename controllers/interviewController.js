@@ -36,7 +36,7 @@ export const startInterview = async (req, res) => {
       userId: userId || null,
       isAnonymous: isAnonymous ?? true,
       totalQuestions,
-      questionsAsked: 0,
+      questionsAsked: 1,
       answers: [],
       isCompleted: false,
       status: "in_progress",
@@ -56,7 +56,12 @@ Start with a warm greeting and ask the candidate to briefly introduce themselves
 Keep it natural and friendly.
     `);
 
-    if (!greeting?.trim()) {
+    // Strip AI's potential "Q1: " prefix
+    if (greeting) {
+      greeting = greeting.replace(/^(Q\d+|Question\s*\d+)[:.]?\s*/i, "").trim();
+    }
+
+    if (!greeting) {
       greeting =
         "Hi, welcome! I'm glad you're here today. Could you please introduce yourself briefly?";
     }
@@ -80,6 +85,7 @@ Keep it natural and friendly.
 
 
 // ------------------- NEXT QUESTION -------------------
+// ------------------- NEXT QUESTION -------------------
 export const nextQuestion = async (req, res) => {
   try {
     const { sessionId, answer } = req.body;
@@ -90,7 +96,7 @@ export const nextQuestion = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Session not found" });
 
-    const currentQuestionNumber = session.questionsAsked + 1;
+    const currentQuestionNumber = session.questionsAsked;
     const normalizedAnswer = answer?.toLowerCase() || "";
 
     const repeatKeywords = [
@@ -113,25 +119,92 @@ export const nextQuestion = async (req, res) => {
       });
     }
 
-    // ---------------- RELEVANCE CHECK ----------------
-    let relevance = "relevant";
+    const skipKeywords = ["i don't know", "dont know", "no idea", "not sure", "pass"];
+    const shouldSkipRelevance = skipKeywords.some((k) => normalizedAnswer.includes(k));
 
-    // Q1 → Introduction, single warm-up question
-    if (session.questionsAsked === 0) {
-      // Reject complete nonsense or gibberish
-      const wordCount = answer?.trim().split(/\s+/).length || 0;
-      const hasLetters = /[a-zA-Z]/.test(answer);
+    // ---------------- PREPARE PROMPTS ----------------
+    // Next question number should be current + 1 (State 1 -> Asking Q2)
+    const nextQuestionNumber = currentQuestionNumber + 1;
+    let nextQuestionPrompt = "";
 
-      if (wordCount < 2 || !hasLetters) relevance = "irrelevant";
+    const previousQuestions = session.answers
+      .map((a) => a.question)
+      .concat(session.lastQuestion)
+      .join("\n");
+
+    const duplicateInstruction = `
+Do NOT ask any of the following questions (or similar variants):
+${previousQuestions}
+`;
+
+    // Determine prompt for the *future* question matches what logic we had
+    if (nextQuestionNumber === 2) {
+      nextQuestionPrompt = `
+You are an interviewer.
+Ask a VERY EASY and basic question about the role: ${session.role}.
+Do NOT ask about background, education, or personal details.
+Keep it strictly technical but beginner-friendly.
+${duplicateInstruction}
+      `;
+    } else if (nextQuestionNumber === 3) {
+      nextQuestionPrompt = `
+You are an interviewer.
+Ask another VERY EASY question about the role: ${session.role}.
+Do NOT ask about personal history.
+${duplicateInstruction}
+      `;
     } else {
-      // All other questions, use AI relevance
-      relevance = await checkAnswerRelevance(
-        `Question Q${currentQuestionNumber} for role ${session.role}`,
-        answer
-      );
+      nextQuestionPrompt = `
+You are an AI interviewer.
+Ask a VERY EASY technical question for the role: ${session.role}.
+Do NOT ask complex or tricky questions.
+Maintain a friendly tone.
+ONLY ask the question.
+${duplicateInstruction}
+      `;
     }
 
-    if (relevance === "irrelevant") {
+    // ---------------- PARALLEL EXECUTION ----------------
+    // We start both tasks immediately
+    const relevancePromise = (async () => {
+      if (shouldSkipRelevance) return "relevant"; // Allow "I don't know" to pass
+
+      if (currentQuestionNumber === 1) {
+        // Q1 Logic
+        const wordCount = answer?.trim().split(/\s+/).length || 0;
+        const hasLetters = /[a-zA-Z]/.test(answer);
+        return (wordCount < 2 || !hasLetters) ? "irrelevant" : "relevant";
+      } else {
+        return checkAnswerRelevance(
+          `Question Q${currentQuestionNumber} for role ${session.role}`,
+          answer
+        );
+      }
+    })();
+
+    const nextQuestionPromise = (async () => {
+      // If we are answering the last question (questionsAsked == totalQuestions), we generate feedback.
+      // E.g. total 5. Asking 1 -> Answering 1. Next is 2.
+      // Asking 4 -> Answering 4. Next is 5.
+      // Asking 5 -> Answering 5. Next is NULL (Feedback).
+
+      if (currentQuestionNumber >= session.totalQuestions) {
+        return null; // Signals we need feedback
+      }
+      return generateAIResponse(nextQuestionPrompt);
+    })();
+
+    // Await both
+    const [relevance, nextQuestionText] = await Promise.all([
+      relevancePromise,
+      nextQuestionPromise
+    ]);
+
+    // ---------------- CHECK RELEVANCE ----------------
+    // Ensure strict normalization
+    const safeRelevance = relevance?.toString().trim().toLowerCase() || "relevant";
+
+    if (safeRelevance.includes("irrelevant") || safeRelevance === "dont_know") {
       return res.json({
         success: false,
         askAgain: true,
@@ -140,17 +213,35 @@ export const nextQuestion = async (req, res) => {
       });
     }
 
-    session.questionsAsked += 1;
+    // If valid, Proceed
+
+    // SAFETY: Ensure questionNumber is valid (Schema min: 1)
+    if (session.questionsAsked < 1) {
+      console.warn(`⚠️ Fixed invalid questionsAsked (0) for session ${session._id}`);
+      session.questionsAsked = 1;
+    }
+
+    const saveQuestionNumber = session.questionsAsked;
+
+    // SAVE ANSWER for current question BEFORE incrementing
     session.answers.push({
-      questionNumber: session.questionsAsked,
+      questionNumber: saveQuestionNumber,
       question: session.lastQuestion,
       answer,
     });
+    session.questionsAsked += 1;
 
-    // ---------------- FINAL FEEDBACK ----------------
-    if (session.questionsAsked === session.totalQuestions) {
+    // ---------------- FINAL FEEDBACK (If end) ----------------
+    if (session.questionsAsked > session.totalQuestions) {
       const feedbackPrompt = `
 You are an AI interviewer.
+Evaluate the candidate's answers based on technical accuracy, depth, and communication.
+
+CRITICAL SCORING RULES:
+- If the candidate answers "I don't know", "pass", or irrelevant nonsense to ANY question, significantly lower the rating.
+- If the candidate fails to answer most questions technically or answers "I don't know" repeatedly, the rating MUST be below 4.
+- A rating of 6 or higher is reserved ONLY for candidates who demonstrate actual technical knowledge.
+- Be strict. Do not give participation points for empty answers.
 
 Return feedback STRICTLY in JSON:
 {
@@ -178,49 +269,25 @@ ${session.answers.map((a) => `Q${a.questionNumber}: ${a.answer}`).join("\n")}
       });
     }
 
-    // ---------------- NEXT QUESTION LOGIC ----------------
-    const nextQuestionNumber = session.questionsAsked + 1;
-    let nextQuestionPrompt = "";
+    // ---------------- NEXT QUESTION ----------------
+    let finalNextQuestion = nextQuestionText;
 
-    // Q2 → Background
-    if (nextQuestionNumber === 2) {
-      nextQuestionPrompt = `
-You are an interviewer.
-Ask about the candidate's background, experience level, or education.
-Keep it conversational.
-      `;
-    }
-    // Q3 → Experience / Skills
-    else if (nextQuestionNumber === 3) {
-      nextQuestionPrompt = `
-You are an interviewer.
-Ask about the candidate's experience, skills, or technologies they have worked with.
-      `;
-    }
-    // Q4+ → Technical interview
-    else {
-      nextQuestionPrompt = `
-You are an AI interviewer.
-Ask a technical interview question for the role: ${session.role}.
-ONLY ask the question.
-      `;
+    if (!finalNextQuestion?.trim()) {
+      finalNextQuestion = `Describe your experience related to this role.`;
     }
 
-    let nextQuestion = await generateAIResponse(nextQuestionPrompt);
+    // Strip AI's potential "Q2: " or "Question 2:" prefix
+    finalNextQuestion = finalNextQuestion.replace(/^(Q\d+|Question\s*\d+)[:.]?\s*/i, "").trim();
 
-    if (!nextQuestion?.trim()) {
-      nextQuestion = `Describe your experience related to this role.`;
-    }
+    finalNextQuestion = `Q${nextQuestionNumber}: ${finalNextQuestion}`;
 
-    nextQuestion = `Q${nextQuestionNumber}: ${nextQuestion.trim()}`;
-
-    session.lastQuestion = nextQuestion;
+    session.lastQuestion = finalNextQuestion;
     await session.save();
 
     res.json({
       success: true,
       questionNumber: nextQuestionNumber,
-      question: nextQuestion,
+      question: finalNextQuestion,
     });
   } catch (error) {
     console.error("Next Question Error:", error);

@@ -13,21 +13,23 @@ export const checkAnswerRelevance = async (question, answer) => {
 
     const prompt = `
 You are an AI relevance evaluator.
-Check if the user's answer addresses the question appropriately.
-Be lenient: consider answers relevant if they relate to the topic, describe processes, tools, experiences, or approaches, even if not perfectly worded.
+Check if the user's answer relates to the question.
 
-Return ONLY one word from:
-- relevant
-- irrelevant
-- dont_know
+======================
+STRICT RULES
+======================
+- POLITE and LENIENT.
+- Accept answers that are even slightly related.
+- Accept "I don't know" or "No idea" as RELEVANT (do not reject them).
+- Output ONLY one word: "relevant" or "irrelevant".
+- Default to "relevant" if unsure.
+- NO explanations. NO markdown.
 
 ### Question:
 ${question}
 
 ### Answer:
 ${answer}
-
-Respond with ONE WORD ONLY. No explanations.
     `;
 
     console.log("🟢 Relevance prompt:\n", prompt);
