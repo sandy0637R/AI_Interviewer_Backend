@@ -2,14 +2,14 @@ import Groq from "groq-sdk";
 import dotenv from "dotenv";
 dotenv.config();
 
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
 export const checkAnswerRelevance = async (question, answer) => {
   try {
     if (!process.env.GROQ_API_KEY) {
       console.warn("❌ Missing GROQ_API_KEY, defaulting to 'relevant'");
       return "relevant";
     }
+
+    const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
     const prompt = `
 You are an AI relevance evaluator.
@@ -40,7 +40,7 @@ ${answer}
         { role: "system", content: "Classify relevance. Output one word only: relevant / irrelevant / dont_know" },
         { role: "user", content: prompt },
       ],
-      temperature: 0.3, // lenient
+      temperature: 0.3,
       max_tokens: 5,
     });
 
@@ -62,6 +62,6 @@ ${answer}
     return relevance;
   } catch (error) {
     console.error("Relevance Check Error:", error?.message || error);
-    return "relevant"; // safe fallback
+    return "relevant";
   }
 };
