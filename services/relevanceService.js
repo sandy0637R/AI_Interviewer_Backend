@@ -1,6 +1,4 @@
 import Groq from "groq-sdk";
-import dotenv from "dotenv";
-dotenv.config();
 
 export const checkAnswerRelevance = async (question, answer) => {
   try {

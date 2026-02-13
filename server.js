@@ -1,9 +1,15 @@
-// server.js
+import dotenv from "dotenv";
+dotenv.config(); // Load env vars before anything else
+
 import http from "http";
 import { Server } from "socket.io";
 import app from "./app.js";
 import InterviewSession from "./models/interviewSession.js";
 import { generateAIResponse } from "./services/aiService.js";
+
+// Debug logs to verify environment variables are loaded
+console.log("ENV CHECK MONGO:", process.env.MONGO_URI ? "Defined" : "Undefined");
+console.log("ENV CHECK GROQ:", process.env.GROQ_API_KEY ? "Defined" : "Undefined");
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
